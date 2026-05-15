@@ -14,19 +14,17 @@ const EMPTY_PAYMENT_FORM = {
   amount: '',
   due_date: '',
   status: 'unpaid',
-  paid_date: '',
   confirmation_number: '',
   notes: '',
 }
 
-const PAYMENT_STATUS_OPTIONS = ['unpaid', 'paid', 'late', 'skipped']
+const PAYMENT_STATUS_OPTIONS = ['unpaid', 'late', 'skipped']
 
 function paymentToForm(payment) {
   return {
     amount: payment.amount ?? '',
     due_date: payment.due_date || '',
-    status: payment.status || 'unpaid',
-    paid_date: payment.paid_date || '',
+    status: PAYMENT_STATUS_OPTIONS.includes(payment.status) ? payment.status : 'unpaid',
     confirmation_number: payment.confirmation_number || '',
     notes: payment.notes || '',
   }
@@ -252,15 +250,9 @@ export default function DebtCard({
                   <option key={option} value={option}>{option}</option>
                 ))}
               </select>
-            </div>
-            <div className="form-group">
-              <label>Paid date</label>
-              <input
-                type="date"
-                value={paymentForm.paid_date}
-                onChange={(event) => updatePaymentForm('paid_date', event.target.value)}
-                disabled={paymentForm.status !== 'paid'}
-              />
+              <p style={{ marginTop: '6px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                Use Mark Paid for completed payments so the collection balance recalculates.
+              </p>
             </div>
           </div>
 
@@ -317,15 +309,20 @@ export default function DebtCard({
                 {payment.status === 'paid' ? (
                   <span className="text-accent" style={{ fontSize: '0.8rem' }}>✓ Paid</span>
                 ) : (
-                  <button
-                    className="btn btn-primary"
-                    type="button"
-                    style={{ padding: '6px 12px', fontSize: '0.75rem' }}
-                    onClick={() => onMarkPaid(payment.id)}
-                    disabled={saving}
-                  >
-                    Mark Paid
-                  </button>
+                  <div style={{ textAlign: 'right' }}>
+                    <button
+                      className="btn btn-primary"
+                      type="button"
+                      style={{ padding: '6px 12px', fontSize: '0.75rem' }}
+                      onClick={() => onMarkPaid(payment.id)}
+                      disabled={saving}
+                    >
+                      Mark Paid
+                    </button>
+                    <div style={{ marginTop: '4px', fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                      Updates balance
+                    </div>
+                  </div>
                 )}
               </div>
               <div className="flex-gap" style={{ marginBottom: '8px' }}>
