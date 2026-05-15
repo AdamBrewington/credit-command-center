@@ -5,6 +5,7 @@ import DebtCard from '../components/DebtCard'
 
 const COLLECTION_STATUS_OPTIONS = ['unpaid', 'active_plan', 'settled', 'paid', 'disputed', 'waiting']
 const PAYMENT_FREQUENCY_OPTIONS = ['weekly', 'biweekly', 'monthly', 'one_time']
+const MANUAL_PAYMENT_STATUS_OPTIONS = ['unpaid', 'late', 'skipped']
 
 const EMPTY_COLLECTION_FORM = {
   account_name: '',
@@ -266,12 +267,12 @@ export default function Collections() {
       return { error: 'Payment due date is required.' }
     }
 
-    const paymentStatus = paymentForm.status || 'unpaid'
+    const paymentStatus = MANUAL_PAYMENT_STATUS_OPTIONS.includes(paymentForm.status) ? paymentForm.status : 'unpaid'
     const payload = {
       amount: Number(paymentForm.amount),
       due_date: paymentForm.due_date,
       status: paymentStatus,
-      paid_date: paymentStatus === 'paid' ? (paymentForm.paid_date || new Date().toISOString().split('T')[0]) : null,
+      paid_date: null,
       confirmation_number: paymentForm.confirmation_number?.trim() || null,
       notes: paymentForm.notes?.trim() || null,
     }
