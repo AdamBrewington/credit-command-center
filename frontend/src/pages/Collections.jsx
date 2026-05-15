@@ -308,64 +308,54 @@ export default function Collections() {
     setSaving(true)
     setError(null)
     setNotice(null)
-
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
       setError('You must be signed in to delete payments.')
       setSaving(false)
       return
     }
-
-    const { error: deleteError } = await supabase
-      .from('payments')
-      .delete()
-      .eq('id', paymentId)
-      .eq('collection_id', collectionId)
-      .eq('user_id', user.id)
-
-    if (deleteError) {
-      setError(deleteError.message)
+    const { data, error: rpcError } = await supabase.rpc('delete_collection_payment', {
+      payment_id_input: paymentId
+    })
+    if (rpcError) {
+      setError(rpcError.message)
     } else {
-      setNotice('Payment deleted.')
+      const result = data && data[0]
+      if (result && result.was_paid) {
+        setNotice('Payment deleted. $' + result.amount_restored + ' restored to balance.')
+      } else {
+        setNotice('Payment deleted.')
+      }
       await loadCollections()
     }
-
     setSaving(false)
   }
 
   async function handleMarkPaid(paymentId) {
     const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-
-    // Get Supabase URL from the client
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-    const { data: { session } } = await supabase.auth.getSession()
-
-    try {
-      const res = await fetch(`${supabaseUrl}/functions/v1/mark-paid`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          payment_id: paymentId,
-          user_id: user.id,
-        }),
-      })
-
-      if (res.ok) {
-        // Reload data
-        setNotice('Payment marked paid.')
-        await loadCollections()
-      } else {
-        const details = await res.json().catch(() => ({}))
-        setError(details.error || 'Failed to mark payment paid.')
-      }
-    } catch (err) {
-      console.error('Failed to mark paid:', err)
-      setError('Failed to mark payment paid.')
+    if (!user) {
+      setError('You must be signed in to mark payments paid.')
+      return
     }
+
+    setSaving(true)
+    setError(null)
+    setNotice(null)
+
+    const { data, error: rpcError } = await supabase.rpc('mark_collection_payment_paid', {
+      payment_id_input: paymentId,
+    })
+
+    if (rpcError) {
+      setError(rpcError.message || 'Failed to mark payment paid.')
+      setSaving(false)
+      return
+    }
+
+    const result = Array.isArray(data) ? data[0] : data
+    setNotice(result?.already_paid ? 'Payment was already marked paid.' : 'Payment marked paid.')
+    await loadCollections()
+    setSaving(false)
   }
 
   if (loading) return <div className="loading">Loading...</div>

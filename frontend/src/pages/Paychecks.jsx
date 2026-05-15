@@ -736,6 +736,14 @@ export default function Paychecks() {
         <div className="empty-state">
           <h3>No upcoming paychecks</h3>
           <p>Add your paycheck schedule to see checklists here.</p>
+          <div className="flex-gap" style={{ justifyContent: 'center', marginTop: '18px' }}>
+            <button className="btn btn-primary" type="button" onClick={startAddPaycheck} disabled={saving}>
+              Add Paycheck
+            </button>
+            <button className="btn btn-secondary" type="button" onClick={() => startAddBill()} disabled={saving}>
+              Add Bill
+            </button>
+          </div>
         </div>
       ) : (
         paychecks.map(paycheck => {

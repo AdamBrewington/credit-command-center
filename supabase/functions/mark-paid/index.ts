@@ -13,16 +13,59 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
 interface MarkPaidRequest {
   payment_id: string;
   user_id: string;
   confirmation_number?: string;
 }
 
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      ...corsHeaders,
+      "Content-Type": "application/json",
+    },
+  });
+}
+
+async function sendNotification(payload: Record<string, unknown>): Promise<void> {
+  try {
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/send-text`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      console.error("mark-paid notification failed:", await res.text());
+    }
+  } catch (err) {
+    console.error("mark-paid notification error:", err);
+  }
+}
+
 serve(async (req: Request) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
+
   try {
     const { payment_id, user_id, confirmation_number }: MarkPaidRequest = await req.json();
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+    if (!payment_id || !user_id) {
+      return jsonResponse({ error: "Missing payment_id or user_id" }, 400);
+    }
 
     // Get the payment
     const { data: payment, error: payError } = await supabase
@@ -33,15 +76,15 @@ serve(async (req: Request) => {
       .single();
 
     if (payError || !payment) {
-      return new Response(JSON.stringify({ error: "Payment not found" }), { status: 404 });
+      return jsonResponse({ error: "Payment not found" }, 404);
     }
 
     if (payment.status === "paid") {
-      return new Response(JSON.stringify({ error: "Already paid" }), { status: 400 });
+      return jsonResponse({ error: "Already paid" }, 400);
     }
 
     // Mark payment as paid
-    await supabase
+    const { error: updatePaymentError } = await supabase
       .from("payments")
       .update({
         status: "paid",
@@ -50,19 +93,27 @@ serve(async (req: Request) => {
       })
       .eq("id", payment_id);
 
+    if (updatePaymentError) {
+      return jsonResponse({ error: updatePaymentError.message }, 500);
+    }
+
     // Update collection balance
     const collection = payment.collections;
     const newBalance = Math.max(0, parseFloat(collection.current_balance) - parseFloat(payment.amount));
 
     const newStatus = newBalance <= 0 ? "paid" : "active_plan";
 
-    await supabase
+    const { error: updateCollectionError } = await supabase
       .from("collections")
       .update({
         current_balance: newBalance,
         status: newStatus,
       })
       .eq("id", collection.id);
+
+    if (updateCollectionError) {
+      return jsonResponse({ error: updateCollectionError.message }, 500);
+    }
 
     // Get user profile for phone and notification mode
     const { data: profile } = await supabase
@@ -72,7 +123,7 @@ serve(async (req: Request) => {
       .single();
 
     if (!profile?.phone_number) {
-      return new Response(JSON.stringify({ success: true, message: "Paid but no phone for notification" }), { status: 200 });
+      return jsonResponse({ success: true, message: "Paid but no phone for notification" });
     }
 
     const phone = profile.phone_number;
@@ -82,20 +133,13 @@ serve(async (req: Request) => {
       // ACCOUNT COMPLETE — fire celebration
       const celebrationMsg = getCelebrationMessage(mode, collection.account_name, collection.original_balance);
 
-      await fetch(`${SUPABASE_URL}/functions/v1/send-text`, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          user_id,
-          to: phone,
-          message: celebrationMsg,
-          notification_type: "debt_account_completed",
-          related_table: "collections",
-          related_id: collection.id,
-        }),
+      await sendNotification({
+        user_id,
+        to: phone,
+        message: celebrationMsg,
+        notification_type: "debt_account_completed",
+        related_table: "collections",
+        related_id: collection.id,
       });
     } else {
       // Payment logged — send confirmation
@@ -112,20 +156,13 @@ serve(async (req: Request) => {
         msg = `Payment logged: ${collection.account_name} — $${payment.amount} paid. Remaining: $${remaining}. One step closer.`;
       }
 
-      await fetch(`${SUPABASE_URL}/functions/v1/send-text`, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          user_id,
-          to: phone,
-          message: msg,
-          notification_type: "debt_payment_success",
-          related_table: "payments",
-          related_id: payment_id,
-        }),
+      await sendNotification({
+        user_id,
+        to: phone,
+        message: msg,
+        notification_type: "debt_payment_success",
+        related_table: "payments",
+        related_id: payment_id,
       });
     }
 
@@ -136,16 +173,16 @@ serve(async (req: Request) => {
       .eq("user_id", user_id)
       .single();
 
-    return new Response(JSON.stringify({
+    return jsonResponse({
       success: true,
       new_balance: newBalance,
       account_complete: newBalance <= 0,
       total_progress: summary ? `${summary.percent_complete}%` : null,
-    }), { status: 200 });
+    });
 
   } catch (err) {
     console.error("mark-paid error:", err);
-    return new Response(JSON.stringify({ error: String(err) }), { status: 500 });
+    return jsonResponse({ error: String(err) }, 500);
   }
 });
 
